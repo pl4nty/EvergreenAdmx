@@ -12,9 +12,14 @@
 *  Add parameter to clean old Office ADMX from Central Policy Store location
 *  Add parameter to clean old Adobe Reader ADMX from Central Policy Store location
 
+## 25xx.y
+
+* Added Admx for Microsoft Visual Studio [#33](https://github.com/msfreaks/EvergreenAdmx/issues/32)
+* Added Admx for Microsoft VS Code [#33](https://github.com/msfreaks/EvergreenAdmx/issues/32)
+
 ## 2411.1
 
-* Added admx for Microsoft Winget [#40](https://github.com/msfreaks/EvergreenAdmx/issues/40)
+* Added Admx for Microsoft Winget [#40](https://github.com/msfreaks/EvergreenAdmx/issues/40)
 
 ## 2411.0
 

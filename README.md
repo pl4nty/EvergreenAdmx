@@ -55,7 +55,7 @@ From this version the 'Includes' will default to "Windows 11", "Microsoft Edge",
 This script no longer processes all the products by default. There's no need to comment out any products you don't need anymore.
 
 In 2101.2 the parameter 'Include' was introduced which is an array you can use to specify all products that need to be processed. This parameter is required for the script to be able to run.
-Valid entries are "Custom Policy Store", "Windows 10" or "Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office", "FSLogix", "Adobe Acrobat", "Adobe Reader", "BIS-F", "Citrix Workspace App", "Google Chrome", "Microsoft Desktop Optimization Pack", "Mozilla Firefox", "Zoom Desktop Client", "Azure Virtual Desktop", "Microsoft Winget".
+Valid entries are "Custom Policy Store", "Windows 10" or "Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office", "FSLogix", "Adobe Acrobat", "Adobe Reader", "BIS-F", "Citrix Workspace App", "Google Chrome", "Microsoft Desktop Optimization Pack", "Mozilla Firefox", "Zoom Desktop Client".
 
 By default, if you don't use this parameter, only "Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office" is processed.
 
@@ -199,6 +199,7 @@ Now supports
 *  Microsoft Edge (Chromium)
 *  Microsoft Office
 *  Microsoft OneDrive (local installation or Evergreen)
+*  Microsoft VS Code (local installation or Evergreen)
 *  Microsoft Windows 10 (1903/1909/2004/20H2/21H1/21H2/22H2)
 *  Microsoft Windows 11 (21H2/22H2/23H2/24H2)
 *  Microsoft Winget
@@ -209,7 +210,7 @@ Now supports
 
 I have not tested this script on Windows Core.
 Some of the Admx files can only be obtained by installing the package that was downloaded.
-For instance, the Windows 10 and Windows 11 Admx files are in an msi file, the OneDrive Admx files are in the installation folder after installing OneDrive.
+For instance, the Windows 10 and Windows 11 Admx files are in an msi file, the OneDrive and VS Code Admx files are in the installation folder after installing the application.
 If you are going to use the script to download Windows 10 or Windows 11 Admx files, you will need to remove any installs of the Windows 10 or Windows 11 Admx msi, or the script will fail.
 So this is what the script does for these packages: installing the package, copying the Admx files, uninstalling the package.
 
