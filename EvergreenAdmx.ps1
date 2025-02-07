@@ -96,7 +96,7 @@ param(
     [switch] $UseProductFolders,
     [Parameter(Mandatory = $False)]
     [System.String] $CustomPolicyStore = $null,
-    [Parameter(Mandatory = $False)][ValidateSet("Custom Policy Store", "Windows 10", "Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office", "FSLogix", "Adobe Acrobat", "Adobe Reader", "BIS-F", "Citrix Workspace App", "Google Chrome", "Microsoft Desktop Optimization Pack", "Mozilla Firefox", "Zoom Desktop Client", "Azure Virtual Desktop", "Microsoft Winget", "Brave Browser", "Winget-AutoUpdate")]
+    [Parameter(Mandatory = $False)][ValidateSet("Custom Policy Store", "Windows 10", "Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office", "FSLogix", "Adobe Acrobat", "Adobe Reader", "BIS-F", "Citrix Workspace App", "Google Chrome", "Microsoft Desktop Optimization Pack", "Mozilla Firefox", "Zoom Desktop Client", "Azure Virtual Desktop", "Microsoft Winget", "Brave Browser", "Winget-AutoUpdate", "Winget-AutoUpdate-aaS")]
     [System.String[]] $Include = @("Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office"),
     [Parameter(Mandatory = $False)]
     [switch] $PreferLocalOneDrive = $False
@@ -1408,6 +1408,32 @@ function Get-WAUAdmxOnline {
     }
 }
 
+function Get-WAUSAdmxOnline {
+    <#
+    .SYNOPSIS
+        Returns latest Version and Uri for Winget-AutoUpdate ADMX files
+    #>
+
+    try {
+
+        # define github repo
+        $repo = "Weatherlights/Winget-AutoUpdate-Intune"
+        # grab latest release properties
+        $latest = ((Invoke-WebRequest -UseDefaultCredentials -Uri "https://api.github.com/repos/$($repo)/releases" -UseBasicParsing | ConvertFrom-Json) | Where-Object { $_.prerelease -eq $false -and $_.assets.browser_download_url -match 'WinGet-AutoUpdate-Configurator' })[0]
+
+        # grab version
+        $Version = ($latest.tag_name | Select-String -Pattern "(\d+(\.\d+){1,4})" -AllMatches | ForEach-Object { $_.Matches } | ForEach-Object { $_.Value }).ToString()
+        # grab uri
+        $URI = $latest.assets.browser_download_url | Where-Object { $_ -like '*/WinGet-AutoUpdate-Configurator.adm*' } | Sort-Object
+
+        # return evergreen object
+        return @{ Version = $Version; URI = $URI }
+    }
+    catch {
+        Throw $_
+    }
+}
+
 function Get-FSLogixAdmx {
     <#
     .SYNOPSIS
@@ -2593,6 +2619,63 @@ function Get-WAUAdmx {
         return $null
     }
 }
+function Get-WAUSAdmx {
+    <#
+    .SYNOPSIS
+        Process WinGet-AutoUpdate-aaS Admx files
+
+    .PARAMETER Version
+        Current Version present
+
+    .PARAMETER PolicyStore
+        Destination for the Admx files
+    #>
+
+    param(
+        [string]$Version,
+        [string]$PolicyStore = $null,
+        [string[]]$Languages = $null
+    )
+
+    $Evergreen = Get-WAUSAdmxOnline
+    $ProductName = "WinGet-AutoUpdate-aaS"
+    $ProductFolder = ""; if ($UseProductFolders) { $ProductFolder = "\$($ProductName)" }
+
+    # see if this is a newer version
+    if (-not $Version -or [version]$Evergreen.Version -gt [version]$Version) {
+        Write-Verbose "Found new version $($Evergreen.Version) for '$($ProductName)'"
+
+        # download and process
+        try {
+            # download
+            New-Item -ItemType Directory -Path "$($env:TEMP)\wausadmx\en-US"
+            $OutFile = "$($env:TEMP)\wausadmx\en-US\$($Evergreen.URI[0].Split("/")[-1])"
+            Write-Verbose "Downloading '$($Evergreen.URI[0])' to '$($OutFile)'"
+            Invoke-WebRequest -UseDefaultCredentials -Uri $Evergreen.URI[0] -UseBasicParsing -OutFile $OutFile
+
+            $OutFile = "$($env:TEMP)\wausadmx\$($Evergreen.URI[1].Split("/")[-1])"
+            Write-Verbose "Downloading '$($Evergreen.URI[1])' to '$($OutFile)'"
+            Invoke-WebRequest -UseDefaultCredentials -Uri $Evergreen.URI[1] -UseBasicParsing -OutFile $OutFile
+
+            # copy
+            $SourceAdmx = "$($env:TEMP)\wausadmx"
+            $TargetAdmx = "$($WorkingDirectory)\admx$($ProductFolder)"
+            Copy-Admx -SourceFolder $SourceAdmx -TargetFolder $TargetAdmx -PolicyStore $PolicyStore -ProductName $ProductName -Languages $Languages
+
+            # cleanup
+            Remove-Item -Path "$($env:TEMP)\wausadmx" -Recurse -Force
+
+            return $Evergreen
+        }
+        catch {
+            Throw $_
+        }
+    }
+    else {
+        # version already processed
+        return $null
+    }
+}
 
 #endregion
 
@@ -2787,6 +2870,16 @@ else {
     Write-Verbose "`nProcessing Admx files for Winget-AutoUpdate"
     $admx = Get-WAUAdmx -Version $admxversions.WAU.Version -PolicyStore $PolicyStore -Languages $Languages
     if ($admx) { if ($admxversions.WAU) { $admxversions.WAU = $admx } else { $admxversions += @{ WAU = @{ Version = $admx.Version; URI = $admx.URI } } } }
+}
+
+# WinGet-AutoUpdate-aaS
+if ($Include -notcontains 'WinGet-AutoUpdate-aaS') {
+    Write-Verbose "`nSkipping WinGet-AutoUpdate-aaS"
+}
+else {
+    Write-Verbose "`nProcessing Admx files for WinGet-AutoUpdate-aaS"
+    $admx = Get-WAUSAdmx -Version $admxversions.WAUS.Version -PolicyStore $PolicyStore -Languages $Languages
+    if ($admx) { if ($admxversions.WAUS) { $admxversions.WAUS = $admx } else { $admxversions += @{ WAUS = @{ Version = $admx.Version; URI = $admx.URI } } } }
 }
 
 Write-Verbose "`nSaving Admx versions to '$($WorkingDirectory)\admxversions.json'"
