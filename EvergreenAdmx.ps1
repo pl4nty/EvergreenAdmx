@@ -118,7 +118,8 @@ param(
         "Winget-AutoUpdate",
         "Winget-AutoUpdate-aaS",
         "Devolutions Remote Desktop Manager",
-        "Slack"
+        "Slack",
+        "MakeMeAdmin"
     )]
     [System.String[]] $Include = @("Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office"),
     [Parameter(Mandatory = $False)]
@@ -1497,6 +1498,35 @@ function Get-SlackAdmxOnline {
     }
 }
 
+function Get-MakeMeAdminAdmxOnline {
+    <#
+    .SYNOPSIS
+        Returns latest Version and Uri for Winget-AutoUpdate ADMX files
+    #>
+
+    try {
+
+        # define github repo
+        $repo = "pseymour/MakeMeAdmin"
+        # grab latest version number
+        $latest = ((Invoke-WebRequest -UseDefaultCredentials -Uri "https://api.github.com/repos/$($repo)/contents/Installers/en-us" -UseBasicParsing | ConvertFrom-Json) | Where-Object { $_.name -notlike "*Debug*" })[0]
+        # grab version
+        $Version = ($latest.path | Select-String -Pattern "(\d+(\.\d+){1,4})" -AllMatches | ForEach-Object { $_.Matches } | ForEach-Object { $_.Value }).ToString()
+        
+        # grab latest release hash. can't filter out Debug
+        $latest = (Invoke-WebRequest -UseDefaultCredentials -Uri "https://api.github.com/repos/$repo/commits?path=Installers/en-us" -UseBasicParsing | ConvertFrom-Json)[0]
+        # grab uri
+
+        $URI =  "https://github.com/pseymour/MakeMeAdmin/archive/$($latest.sha).zip"
+
+        # return evergreen object
+        return @{ Version = $Version; URI = $URI }
+    }
+    catch {
+        Throw $_
+    }
+}
+
 function Get-FSLogixAdmx {
     <#
     .SYNOPSIS
@@ -2854,6 +2884,63 @@ function Get-SlackAdmx {
     }
 }
 
+function Get-MakeMeAdminAdmx {
+    <#
+    .SYNOPSIS
+        Process MakeMeAdmin files
+
+    .PARAMETER Version
+        Current Version present
+
+    .PARAMETER PolicyStore
+        Destination for the Admx files
+    #>
+
+    param(
+        [string]$Version,
+        [string]$PolicyStore = $null,
+        [string[]]$Languages = $null
+    )
+
+    $Evergreen = Get-MakeMeAdminAdmxOnline
+    $ProductName = "MakeMeAdmin"
+    $ProductFolder = ""; if ($UseProductFolders) { $ProductFolder = "\$($ProductName)" }
+
+    # see if this is a newer version
+    if (-not $Version -or [version]$Evergreen.Version -gt [version]$Version) {
+        Write-Verbose "Found new version $($Evergreen.Version) for '$($ProductName)'"
+
+        # download and process
+        $OutFile = "$($WorkingDirectory)\downloads\$($Evergreen.URI.Split("/")[-1])"
+        try {
+            # download
+            Write-Verbose "Downloading '$($Evergreen.URI)' to '$($OutFile)'"
+            Invoke-WebRequest -UseDefaultCredentials -Uri $Evergreen.URI -UseBasicParsing -OutFile $OutFile
+
+            # extract
+            Write-Verbose "Extracting '$($OutFile)' to '$($env:TEMP)\makemeadminadmx'"
+            Expand-Archive -Path $OutFile -DestinationPath "$($env:TEMP)\makemeadminadmx" -Force
+
+            # copy
+            $SourceAdmx = "$($env:TEMP)\makemeadminadmx\MakeMeAdmin-*\Setup\GroupPolicy"
+            $TargetAdmx = "$($WorkingDirectory)\admx$($ProductFolder)"
+            Copy-Admx -SourceFolder $SourceAdmx -TargetFolder $TargetAdmx -PolicyStore $PolicyStore -ProductName $ProductName -Languages $Languages
+
+            # cleanup
+            Remove-Item -Path "$($env:TEMP)\makemeadminadmx" -Recurse -Force
+
+            return $Evergreen
+        }
+        catch {
+            Throw $_
+        }
+    }
+    else {
+        # version already processed
+        return $null
+    }
+}
+
 #endregion
 
 #region execution
@@ -3077,6 +3164,16 @@ else {
     Write-Verbose "`nProcessing Admx files for Slack"
     $admx = Get-SlackAdmx -Version $admxversions.Slack.Version -PolicyStore $PolicyStore -Languages $Languages
     if ($admx) { if ($admxversions.Slack) { $admxversions.Slack = $admx } else { $admxversions += @{ Slack = @{ Version = $admx.Version; URI = $admx.URI } } } }
+}
+
+# MakeMeAdmin
+if ($Include -notcontains 'MakeMeAdmin') {
+    Write-Verbose "`nSkipping MakeMeAdmin"
+}
+else {
+    Write-Verbose "`nProcessing Admx files for MakeMeAdmin"
+    $admx = Get-MakeMeAdminAdmx -Version $admxversions.MakeMeAdmin.Version -PolicyStore $PolicyStore -Languages $Languages
+    if ($admx) { if ($admxversions.MakeMeAdmin) { $admxversions.MakeMeAdmin = $admx } else { $admxversions += @{ MakeMeAdmin = @{ Version = $admx.Version; URI = $admx.URI } } } }
 }
 
 Write-Verbose "`nSaving Admx versions to '$($WorkingDirectory)\admxversions.json'"
