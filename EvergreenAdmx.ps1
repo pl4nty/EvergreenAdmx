@@ -96,7 +96,7 @@ param(
     [switch] $UseProductFolders,
     [Parameter(Mandatory = $False)]
     [System.String] $CustomPolicyStore = $null,
-    [Parameter(Mandatory = $False)][ValidateSet("Custom Policy Store", "Windows 10", "Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office", "FSLogix", "Adobe Acrobat", "Adobe Reader", "BIS-F", "Citrix Workspace App", "Google Chrome", "Microsoft Desktop Optimization Pack", "Mozilla Firefox", "Zoom Desktop Client", "Azure Virtual Desktop", "Microsoft Winget", "Brave Browser", "Winget-AutoUpdate", "Winget-AutoUpdate-aaS")]
+    [Parameter(Mandatory = $False)][ValidateSet("Custom Policy Store", "Windows 10", "Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office", "FSLogix", "Adobe Acrobat", "Adobe Reader", "BIS-F", "Citrix Workspace App", "Google Chrome", "Microsoft Desktop Optimization Pack", "Mozilla Firefox", "Zoom Desktop Client", "Azure Virtual Desktop", "Microsoft Winget", "Brave Browser", "Winget-AutoUpdate", "Winget-AutoUpdate-aaS", "Devolutions Remote Desktop Manager")]
     [System.String[]] $Include = @("Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office"),
     [Parameter(Mandatory = $False)]
     [switch] $PreferLocalOneDrive = $False
@@ -1434,6 +1434,30 @@ function Get-WAUSAdmxOnline {
     }
 }
 
+function Get-DevolutionsRemoteDesktopAdmxOnline {
+    <#
+    .SYNOPSIS
+        Returns latest Version and Uri for Devolutions Remote Desktop Manager ADMX files
+    #>
+
+    try {
+        $url = "https://devolutions.net/remote-desktop-manager/home/previousversions/free/"
+
+        # grab content
+        $web = Invoke-WebRequest -UseDefaultCredentials -Uri $url -UseBasicParsing -UserAgent 'Googlebot/2.1 (+http://www.google.com/bot.html)'
+        # find ADMX download
+        $URI = (($web.Links | Where-Object { $_.href -like "*.zip" })[0]).href
+        # grab version
+        $Version = ($URI.Split("/")[-1] | Select-String -Pattern "(\d+(\.\d+){1,4})" -AllMatches | ForEach-Object { $_.Matches } | ForEach-Object { $_.Value }).ToString()
+
+        # return evergreen object
+        return @{ Version = $Version; URI = $URI }
+    }
+    catch {
+        Throw $_
+    }
+}
+
 function Get-FSLogixAdmx {
     <#
     .SYNOPSIS
@@ -2677,6 +2701,64 @@ function Get-WAUSAdmx {
     }
 }
 
+
+function Get-DevolutionsRemoteDesktopAdmx {
+    <#
+    .SYNOPSIS
+        Process WinGet-AutoUpdate-aaS Admx files
+
+    .PARAMETER Version
+        Current Version present
+
+    .PARAMETER PolicyStore
+        Destination for the Admx files
+    #>
+
+    param(
+        [string]$Version,
+        [string]$PolicyStore = $null,
+        [string[]]$Languages = $null
+    )
+
+    $Evergreen = Get-DevolutionsRemoteDesktopAdmxOnline
+    $ProductName = "DevolutionsRemoteDesktop"
+    $ProductFolder = ""; if ($UseProductFolders) { $ProductFolder = "\$($ProductName)" }
+
+    # see if this is a newer version
+    if (-not $Version -or [version]$Evergreen.Version -gt [version]$Version) {
+        Write-Verbose "Found new version $($Evergreen.Version) for '$($ProductName)'"
+
+        # download and process
+        $OutFile = "$($WorkingDirectory)\downloads\$($Evergreen.URI.Split("/")[-1])"
+        try {
+            # download
+            Write-Verbose "Downloading '$($Evergreen.URI)' to '$($OutFile)'"
+            Invoke-WebRequest -UseDefaultCredentials -Uri $Evergreen.URI -UseBasicParsing -OutFile $OutFile
+
+            # extract
+            Write-Verbose "Extracting '$($OutFile)' to '$($env:TEMP)\devolutionsrdmadmx'"
+            Expand-Archive -Path $OutFile -DestinationPath "$($env:TEMP)\devolutionsrdmadmx" -Force
+
+            # copy
+            $SourceAdmx = "$($env:TEMP)\devolutionsrdmadmx\Policies"
+            $TargetAdmx = "$($WorkingDirectory)\admx$($ProductFolder)"
+            Copy-Admx -SourceFolder $SourceAdmx -TargetFolder $TargetAdmx -PolicyStore $PolicyStore -ProductName $ProductName -Languages $Languages
+
+            # cleanup
+            Remove-Item -Path "$($env:TEMP)\devolutionsrdmadmx" -Recurse -Force
+
+            return $Evergreen
+        }
+        catch {
+            Throw $_
+        }
+    }
+    else {
+        # version already processed
+        return $null
+    }
+}
+
 #endregion
 
 #region execution
@@ -2880,6 +2962,16 @@ else {
     Write-Verbose "`nProcessing Admx files for WinGet-AutoUpdate-aaS"
     $admx = Get-WAUSAdmx -Version $admxversions.WAUS.Version -PolicyStore $PolicyStore -Languages $Languages
     if ($admx) { if ($admxversions.WAUS) { $admxversions.WAUS = $admx } else { $admxversions += @{ WAUS = @{ Version = $admx.Version; URI = $admx.URI } } } }
+}
+
+# Devolutions Remote Desktop Manager
+if ($Include -notcontains 'Devolutions Remote Desktop Manager') {
+    Write-Verbose "`nSkipping Devolutions Remote Desktop Manager"
+}
+else {
+    Write-Verbose "`nProcessing Admx files for Devolutions Remote Desktop Manager"
+    $admx = Get-DevolutionsRemoteDesktopAdmx -Version $admxversions.DevolutionsRemoteDesktop.Version -PolicyStore $PolicyStore -Languages $Languages
+    if ($admx) { if ($admxversions.DevolutionsRemoteDesktop) { $admxversions.DevolutionsRemoteDesktop = $admx } else { $admxversions += @{ DevolutionsRemoteDesktop = @{ Version = $admx.Version; URI = $admx.URI } } } }
 }
 
 Write-Verbose "`nSaving Admx versions to '$($WorkingDirectory)\admxversions.json'"
