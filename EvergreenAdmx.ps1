@@ -96,7 +96,30 @@ param(
     [switch] $UseProductFolders,
     [Parameter(Mandatory = $False)]
     [System.String] $CustomPolicyStore = $null,
-    [Parameter(Mandatory = $False)][ValidateSet("Custom Policy Store", "Windows 10", "Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office", "FSLogix", "Adobe Acrobat", "Adobe Reader", "BIS-F", "Citrix Workspace App", "Google Chrome", "Microsoft Desktop Optimization Pack", "Mozilla Firefox", "Zoom Desktop Client", "Azure Virtual Desktop", "Microsoft Winget", "Brave Browser", "Winget-AutoUpdate", "Winget-AutoUpdate-aaS", "Devolutions Remote Desktop Manager")]
+    [Parameter(Mandatory = $False)][ValidateSet(
+        "Custom Policy Store",
+        "Windows 10",
+        "Windows 11",
+        "Microsoft Edge",
+        "Microsoft OneDrive",
+        "Microsoft Office",
+        "FSLogix",
+        "Adobe Acrobat",
+        "Adobe Reader",
+        "BIS-F",
+        "Citrix Workspace App",
+        "Google Chrome",
+        "Microsoft Desktop Optimization Pack",
+        "Mozilla Firefox",
+        "Zoom Desktop Client",
+        "Azure Virtual Desktop",
+        "Microsoft Winget",
+        "Brave Browser",
+        "Winget-AutoUpdate",
+        "Winget-AutoUpdate-aaS",
+        "Devolutions Remote Desktop Manager",
+        "Slack"
+    )]
     [System.String[]] $Include = @("Windows 11", "Microsoft Edge", "Microsoft OneDrive", "Microsoft Office"),
     [Parameter(Mandatory = $False)]
     [switch] $PreferLocalOneDrive = $False
@@ -1458,6 +1481,22 @@ function Get-DevolutionsRemoteDesktopAdmxOnline {
     }
 }
 
+function Get-SlackAdmxOnline {
+    <#
+    .SYNOPSIS
+        Returns Version and Uri for Slack ADMX files
+    #>
+
+    try {
+        # version can be detected, but URI has never been updated: https://slack.com/intl/en-au/help/articles/11906214948755-Manage-desktop-app-configurations
+        # https://slack.com/api/desktop.latestRelease?arch=x64&variant=msi
+        return @{ Version = "4.42.117"; URI = "https://slack.zendesk.com/hc/en-gb/article_attachments/37504463164819" }
+    }
+    catch {
+        Throw $_
+    }
+}
+
 function Get-FSLogixAdmx {
     <#
     .SYNOPSIS
@@ -2701,11 +2740,10 @@ function Get-WAUSAdmx {
     }
 }
 
-
 function Get-DevolutionsRemoteDesktopAdmx {
     <#
     .SYNOPSIS
-        Process WinGet-AutoUpdate-aaS Admx files
+        Process Devolutions Remote Desktop Admx files
 
     .PARAMETER Version
         Current Version present
@@ -2721,7 +2759,7 @@ function Get-DevolutionsRemoteDesktopAdmx {
     )
 
     $Evergreen = Get-DevolutionsRemoteDesktopAdmxOnline
-    $ProductName = "DevolutionsRemoteDesktop"
+    $ProductName = "Devolutions Remote Desktop"
     $ProductFolder = ""; if ($UseProductFolders) { $ProductFolder = "\$($ProductName)" }
 
     # see if this is a newer version
@@ -2746,6 +2784,63 @@ function Get-DevolutionsRemoteDesktopAdmx {
 
             # cleanup
             Remove-Item -Path "$($env:TEMP)\devolutionsrdmadmx" -Recurse -Force
+
+            return $Evergreen
+        }
+        catch {
+            Throw $_
+        }
+    }
+    else {
+        # version already processed
+        return $null
+    }
+}
+
+function Get-SlackAdmx {
+    <#
+    .SYNOPSIS
+        Process Slack files
+
+    .PARAMETER Version
+        Current Version present
+
+    .PARAMETER PolicyStore
+        Destination for the Admx files
+    #>
+
+    param(
+        [string]$Version,
+        [string]$PolicyStore = $null,
+        [string[]]$Languages = $null
+    )
+
+    $Evergreen = Get-SlackAdmxOnline
+    $ProductName = "Slack"
+    $ProductFolder = ""; if ($UseProductFolders) { $ProductFolder = "\$($ProductName)" }
+
+    # see if this is a newer version
+    if (-not $Version -or [version]$Evergreen.Version -gt [version]$Version) {
+        Write-Verbose "Found new version $($Evergreen.Version) for '$($ProductName)'"
+
+        # download and process
+        $OutFile = "$($WorkingDirectory)\downloads\$($Evergreen.URI.Split("/")[-1]).zip"
+        try {
+            # download
+            Write-Verbose "Downloading '$($Evergreen.URI)' to '$($OutFile)'"
+            Invoke-WebRequest -UseDefaultCredentials -Uri $Evergreen.URI -UseBasicParsing -OutFile $OutFile
+
+            # extract
+            Write-Verbose "Extracting '$($OutFile)' to '$($env:TEMP)\slackadmx'"
+            Expand-Archive -Path $OutFile -DestinationPath "$($env:TEMP)\slackadmx" -Force
+
+            # copy
+            $SourceAdmx = "$($env:TEMP)\slackadmx"
+            $TargetAdmx = "$($WorkingDirectory)\admx$($ProductFolder)"
+            Copy-Admx -SourceFolder $SourceAdmx -TargetFolder $TargetAdmx -PolicyStore $PolicyStore -ProductName $ProductName -Languages $Languages
+
+            # cleanup
+            Remove-Item -Path "$($env:TEMP)\slackadmx" -Recurse -Force
 
             return $Evergreen
         }
@@ -2972,6 +3067,16 @@ else {
     Write-Verbose "`nProcessing Admx files for Devolutions Remote Desktop Manager"
     $admx = Get-DevolutionsRemoteDesktopAdmx -Version $admxversions.DevolutionsRemoteDesktop.Version -PolicyStore $PolicyStore -Languages $Languages
     if ($admx) { if ($admxversions.DevolutionsRemoteDesktop) { $admxversions.DevolutionsRemoteDesktop = $admx } else { $admxversions += @{ DevolutionsRemoteDesktop = @{ Version = $admx.Version; URI = $admx.URI } } } }
+}
+
+# Slack
+if ($Include -notcontains 'Slack') {
+    Write-Verbose "`nSkipping Slack"
+}
+else {
+    Write-Verbose "`nProcessing Admx files for Slack"
+    $admx = Get-SlackAdmx -Version $admxversions.Slack.Version -PolicyStore $PolicyStore -Languages $Languages
+    if ($admx) { if ($admxversions.Slack) { $admxversions.Slack = $admx } else { $admxversions += @{ Slack = @{ Version = $admx.Version; URI = $admx.URI } } } }
 }
 
 Write-Verbose "`nSaving Admx versions to '$($WorkingDirectory)\admxversions.json'"
