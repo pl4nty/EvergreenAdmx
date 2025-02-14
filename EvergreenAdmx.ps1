@@ -1,4 +1,4 @@
-﻿#Requires -RunAsAdministrator
+#Requires -RunAsAdministrator
 
 #region init
 <#PSScriptInfo
@@ -2941,6 +2941,19 @@ function Get-MakeMeAdminAdmx {
     }
 }
 
+function ConvertTo-UTF8 {
+    param (
+        [string]$Directory
+    )
+
+    $files = Get-ChildItem -Path $Directory -Recurse -Include *.admx, *.adml
+
+    foreach ($file in $files) {
+        $content = Get-Content -Path $file.FullName
+        $content | Set-Content -Path $file.FullName -Encoding utf8
+    }
+}
+
 #endregion
 
 #region execution
@@ -3178,4 +3191,7 @@ else {
 
 Write-Verbose "`nSaving Admx versions to '$($WorkingDirectory)\admxversions.json'"
 $admxversions | ConvertTo-Json | Set-Content -Path "$($WorkingDirectory)\admxversions.json" -Force
+
+# Convert .admx and .adml files to UTF-8
+ConvertTo-UTF8 -Directory "$($WorkingDirectory)\admx"
 #endregion
